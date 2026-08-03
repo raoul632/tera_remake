@@ -1,0 +1,28 @@
+# Assets et données originales de TERA (LORICIELS, 1986) -- sous droits
+# d'auteur, non redistribuees. Procure-toi ta propre copie legale du jeu
+# et place les fichiers dans ces dossiers pour regenerer localement (voir
+# README.md) : data/compiled program/ (binaires originaux), data/source
+# code/ (Pascal decompile), le manuel scanne, et tout ce qui est extrait/
+# derive de ces fichiers (sprites PNG, texte JSON).
+data/compiled program/
+data/source code/
+data/sprites_extracted/
+data/game_data.json
+manuel/
+reference/images/
+
+# Sauvegardes de partie
+save*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# OS / editeurs
+.DS_Store
+Thumbs.db
