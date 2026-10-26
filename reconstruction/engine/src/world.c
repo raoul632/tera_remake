@@ -285,7 +285,9 @@ static void generate_hints_and_words(Generator *g)
          * d'evaluation indefini des arguments d'un appel C. */
         memset(word,0,sizeof word);
         strcpy(word,syllables[first]);strcat(word,syllables[middle]);strcat(word,syllables[last]);
-        memset(s->secret_words[i],0,10);strncpy(s->secret_words[i],word,9);
+        /* word est deja rempli de zeros : copie des neuf octets Pascal,
+         * avec troncature volontaire et terminateur conserve en position 9. */
+        memset(s->secret_words[i],0,10);memcpy(s->secret_words[i],word,9);
     }
     hint(s,23,"invoquer ",s->secret_words[1],NULL);
     hint(s,24,"en haut de la pyramide",NULL,NULL);
