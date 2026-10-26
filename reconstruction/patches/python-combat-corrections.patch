@@ -1,0 +1,383 @@
+diff --git a/src/tera/combat.py b/src/tera/combat.py
+index 9414e17..9089675 100644
+--- a/src/tera/combat.py
++++ b/src/tera/combat.py
+@@ -1,13 +1,10 @@
+ """Resolution de combat, portee depuis les fonctions desassemblees
+ 0x8315 / 0x8215 / 0x8391 / 0x82E5 / 0x842A de TERA.COM.
+ 
+-Voir docs/TERA_notes_moteur.md section 13 et 17, et
+-data/source code/TERAUTIL.INC, pour le detail complet des formules et
+-leur provenance. Le detail par action (`resolve_action`) reproduit les
+-9 branches confirmees de C_842A -- avant cette version, cette fonction
+-ajoutait le bonus d'equipement dans la puissance AVANT le jet, ce qui
+-ne correspond pas a l'original (le bonus s'applique APRES, differemment
+-par action).
++Provenance actuelle : docs/spec_combat_actions.md (BIN/PAS/DATA).
++Les anciennes notes et TERAUTIL.INC reconstruit contiennent des erreurs
++sur les arguments, l'equipement, les verbes et les aides. Le bloc
++numerique est audite ; la resistance et la boucle complete ne le sont pas.
+ """
+ from __future__ import annotations
+ import random
+@@ -28,39 +25,71 @@ STAT_BY_INDEX = {
+ }
+ 
+ # Association verbe de combat -> action_type interne de C_842A (1-9).
+-# Chaque C_8315(competence, stat, perso) confirme dans le desassemblage
++# Chaque C_8315(perso, stat, competence) confirme dans le desassemblage
+ # passe TOUJOURS le meme indice pour stat et competence -- Character.skills
+ # est donc indexe par NOM DE STAT (la maitrise de cette stat en combat),
+ # pas par nom de verbe.
+ #
+-# action_type 7 (Endurance+Agilite, objet fixe "armure spatiale") n'a
+-# aucun verbe correspondant parmi les 8 de VERBES 26-33 une fois les 7
+-# autres assignes (invoquer utilise aussi le type 5, en dehors du menu de
+-# combat, pour le test de l'autel de soin) -- laisse accessible via
+-# resolve_action(7, ...) mais volontairement absent de ACTION_TYPES pour
+-# ne pas inventer une association de verbe non confirmee.
++# Menu BIN C_8790, recoupe avec DATA VERBES[26..33]. Invoquer n'est
++# pas une action de ce menu. Les types 7/8 ont d'autres appelants a auditer.
+ ACTION_TYPES = {
+     "lutter": 1,
+     "tirer": 2,
+     "attaque_mentale": 3,
+     "dissiper": 4,
+-    "invoquer": 5,
+-    "psalmodier": 6,
+-    "jeter_un_sort": 8,
+-    "crier": 9,
++    "psalmodier": 5,
++    "crier": 6,
++    "jeter_un_sort": 9,
+ }
+ 
+ # Objet requis fixe par action_type (0x0F/0x12/0x15 dans le desassemblage).
+ FIXED_ITEMS = {1: 15, 2: 18, 7: 21}
+ 
+-# Actions dont l'objet requis est lu dynamiquement dans l'original
+-# (D_75EA/EB/EC/ED -- tres probablement "l'objet actuellement selectionne
+-# par le joueur pour cette action", role exact non confirme). Le CLI doit
+-# demander au joueur quel objet il utilise pour ces actions-la.
+-DYNAMIC_ITEM_ACTIONS = {"attaque_mentale", "dissiper", "invoquer", "psalmodier"}
++# Les aides sont attribuees a la creation (PAS OVL_0010::INNER_BBA5,
++# BIN overlay C446..C4F7) et non choisies a chaque tour par le joueur.
++HELPER_INDEX_BY_ACTION = {3: 3, 4: 0, 5: 2, 6: 1}  # tableau Python 0-based
++DYNAMIC_ITEM_ACTIONS = {"attaque_mentale", "dissiper", "psalmodier", "crier"}
+ 
+ # Actions sans verification d'equipement du tout dans l'original.
+-NO_ITEM_ACTIONS = {"jeter_un_sort", "crier"}
++NO_ITEM_ACTIONS = {"jeter_un_sort"}
++
++
++def generate_helper_items(rng: random.Random) -> list[int]:
++    """CONFIRME PAS/BIN : quatre tirages distincts, avec rejet des doublons.
++
++    Ne pas remplacer par shuffle : conserver le nombre et l'ordre des
++    appels RANDOM(4) de INNER_BBA5. Codes d'objets : 6, 3, 9, 12.
++    """
++    draws = []
++    while len(draws) < 4:
++        value = rng.randrange(4)
++        if value not in draws:
++            draws.append(value)
++    item_by_draw = {0: 6, 1: 3, 2: 9, 3: 12}
++    return [item_by_draw[draws[i]] for i in (1, 3, 2, 0)]
++
++
++def helper_item_name(action: str, helper_items: list[int]) -> str | None:
++    """Objet requis par ce verbe ; une ancienne sauvegarde peut l'ignorer."""
++    index = HELPER_INDEX_BY_ACTION.get(ACTION_TYPES[action])
++    if index is None or len(helper_items) != 4:
++        return None
++    return get_objects()[helper_items[index] - 1]
++
++
++def _signed16(value: int) -> int:
++    """Valeur du mot AX apres arithmetique 16 bits."""
++    return (value + 32768) % 65536 - 32768
++
++
++def _div(value: int, divisor: int) -> int:
++    """IDIV tronque vers zero, contrairement a // pour les negatifs."""
++    return -(abs(value) // divisor) if value < 0 else value // divisor
++
++
++def _threshold(value: int) -> int:
++    value = _signed16(value)
++    return value - DAMAGE_OFFSET if value > SUCCESS_THRESHOLD else 0
+ 
+ 
+ def skill_modifier(char: Character, stat: str) -> int:
+@@ -70,19 +99,20 @@ def skill_modifier(char: Character, stat: str) -> int:
+ 
+ 
+ def equipment_bonus(char: Character, party: list[Character], required_item: str | None) -> int:
+-    """Port de C_8391/C_8270 : bonus degressif 3/2/1/0.
++    """CONFIRME BIN C_8391 : trois objets, chez le MEME personnage.
+ 
+-    3 si le personnage a lui-meme l'objet requis, 2/1 si un compagnon
+-    proche dans l'ordre du groupe l'a, 0 si personne (ou si aucun objet
+-    n'est requis).
++    Cherche item, item-1, item-2 ; premier trouve => bonus 3, 2, 1.
++    `party` est conserve pour compatibilite des appelants, mais n'est
++    pas consulte par cette routine. Aucun partage d'equipement ici.
+     """
+     if required_item is None:
+         return 0
+-    idx = party.index(char) if char in party else 0
+-    for offset, bonus in ((0, 3), (1, 2), (2, 1)):
+-        i = idx - offset
+-        if 0 <= i < len(party) and required_item in party[i].equipment:
+-            return bonus
++    objects = get_objects()
++    item_id = objects.index(required_item) + 1
++    for offset in range(3):
++        candidate = item_id - offset
++        if candidate >= 1 and objects[candidate - 1] in char.equipment[:10]:
++            return 3 - offset
+     return 0
+ 
+ 
+@@ -95,17 +125,22 @@ def _fixed_item_name(action_type: int) -> str | None:
+ 
+ 
+ def _base_roll(char: Character, stat_idx: int, skill_idx: int, rng: random.Random) -> int:
+-    """Port de C_8315(competence, stat, perso) -- SANS equipement (voir
++    """Port de C_8315(perso, stat, competence) -- SANS equipement (voir
+     section 17 : le bonus d'equipement n'est jamais dans cette fonction,
+     contrairement a l'ancienne hypothese)."""
+     stat_value = char.stats.get(STAT_BY_INDEX[stat_idx], 0)
+     power = (
+         stat_value
+         + skill_modifier(char, STAT_BY_INDEX[skill_idx])
+-        + char.skills.get("bonus_fixe", 0)
++        + char.skills.get("agilite", 0)  # Skills[perso][7], systeme D
+     )
+     roll = power * rng.randint(*RANDOM_MULT_RANGE)
+-    return roll - DAMAGE_OFFSET if roll > SUCCESS_THRESHOLD else 0
++    return _threshold(roll)
++
++
++def vitality_roll(char: Character, rng: random.Random) -> int:
++    """C_8315(perso,6,6), utilise directement par l'autel (PAS OVL_0049)."""
++    return _base_roll(char, 6, 6, rng)
+ 
+ 
+ def negotiation_roll(char: Character, rng: random.Random | None = None) -> int:
+@@ -133,48 +168,55 @@ def resolve_action(
+     """
+     rng = rng or random
+ 
+-    if action_type in FIXED_ITEMS and required_item is None:
++    if action_type not in range(1, 10):
++        raise ValueError(f"action_type inconnu : {action_type}")
++
++    # BIN 843F..8448 : tirage inconditionnel, utilise par types 6/7/8.
++    # Types 1..5/9 consomment ENSUITE un second tirage dans C_8315.
++    entry_factor = rng.randint(*RANDOM_MULT_RANGE)
++
++    if action_type in FIXED_ITEMS:
+         required_item = _fixed_item_name(action_type)
+ 
+     if action_type == 1:
+         base = _base_roll(char, 1, 1, rng)
+         equip = equipment_bonus(char, party, required_item)
+-        return base * (1 + equip)
++        return _signed16(base * (1 + equip))
+     if action_type == 2:
+         base = _base_roll(char, 9, 9, rng)
+         equip = equipment_bonus(char, party, required_item)
+-        return (base * equip * 3) // 2
++        return _div(_signed16(_signed16(base * equip) * 3), 2)
+     if action_type == 3:
+         base = _base_roll(char, 5, 5, rng)
+         equip = equipment_bonus(char, party, required_item)
+-        return base * (1 + equip)
++        return _signed16(base * (1 + equip))
+     if action_type == 4:
+         base = _base_roll(char, 3, 3, rng)
+         equip = equipment_bonus(char, party, required_item)
+-        return base * (1 + equip)
++        return _signed16(base * (1 + equip))
+     if action_type == 5:
+         base = _base_roll(char, 6, 6, rng)
+         equip = equipment_bonus(char, party, required_item)
+-        return base * (1 + equip)
++        return _signed16(base * (1 + equip))
+     if action_type == 6:
+         stat_sum = char.stats.get("chance", 0) + char.stats.get("vitalite", 0)
+-        jet = (
++        jet = _div(_signed16(
+             (stat_sum + skill_modifier(char, "vitalite") + skill_modifier(char, "chance"))
+-            * rng.randint(*RANDOM_MULT_RANGE)
+-        ) // 2
+-        base = jet - DAMAGE_OFFSET if jet > SUCCESS_THRESHOLD else 0
++            * entry_factor
++        ), 2)
++        base = _threshold(jet)
+         equip = equipment_bonus(char, party, required_item)
+-        return base * (1 + equip)
++        return _signed16(base * (1 + equip))
+     if action_type == 7:
+         stat_sum = (char.stats.get("endurance", 0) + char.stats.get("agilite", 0)) // 2
+-        jet = stat_sum * rng.randint(*RANDOM_MULT_RANGE)
+-        base = jet - DAMAGE_OFFSET if jet > SUCCESS_THRESHOLD else 0
++        jet = stat_sum * entry_factor
++        base = _threshold(jet)
+         equip = equipment_bonus(char, party, required_item)
+-        return (base * (2 + equip)) // 2
++        return _div(_signed16(base * (2 + equip)), 2)
+     if action_type == 8:
+         stat_sum = char.stats.get("intelligence", 0) + char.stats.get("volonte", 0)
+-        jet = (stat_sum + skill_modifier(char, "volonte")) * rng.randint(*RANDOM_MULT_RANGE)
+-        return jet - DAMAGE_OFFSET if jet > SUCCESS_THRESHOLD else 0
++        jet = (stat_sum + skill_modifier(char, "volonte")) * entry_factor
++        return _threshold(jet)
+     if action_type == 9:
+         return _base_roll(char, 2, 2, rng)
+     raise ValueError(f"action_type inconnu : {action_type}")
+diff --git a/src/tera/game.py b/src/tera/game.py
+index ede1af2..b806ed8 100644
+--- a/src/tera/game.py
++++ b/src/tera/game.py
+@@ -32,6 +32,7 @@ from .amarande import (
+ from .combat import (
+     attack_power, monster_resistance, spawn_monster_hp, initiative_check,
+     negotiation_roll, ACTION_TYPES, DYNAMIC_ITEM_ACTIONS,
++    generate_helper_items, helper_item_name, vitality_roll,
+ )
+ from .data_loader import get_monsters, get_objects
+ from .save import save_to_file, load_from_file
+@@ -273,7 +274,7 @@ def resolve_altar(party: list[Character], rng: random.Random) -> str:
+     for c in party:
+         if not c.in_party or c.state == "HS":
+             continue
+-        if attack_power(c, "invoquer", party, required_item=None, rng=rng) > 0:
++        if vitality_roll(c, rng) > 0:
+             c.hp, c.mp = c.max_hp, c.max_mp
+             lines.append(f"{c.name} est soigne(e) par l'autel.")
+         else:
+@@ -478,7 +479,7 @@ def _monster_turn(monster, present: list[Character], rng: random.Random, log: Lo
+ 
+ def _party_turn(
+     present: list[Character], monster, monster_hp: int, rng: random.Random,
+-    ask: Ask = input, log: Log = print,
++    ask: Ask = input, log: Log = print, helper_items: list[int] | None = None,
+ ) -> tuple[int, bool]:
+     for actor in present:
+         log(f"PV de {monster.name} : {max(monster_hp, 0)}")
+@@ -490,8 +491,13 @@ def _party_turn(
+ 
+         required_item = None
+         if action in DYNAMIC_ITEM_ACTIONS:
+-            item = ask(f"  objet utilise pour '{action}' (vide = aucun) : ").strip()
+-            required_item = item or None
++            if not helper_items:
++                raise ValueError("MANQUANT : aides originales absentes de cette sauvegarde")
++            required_item = helper_item_name(action, helper_items)
++        if action == "crier":
++            # BIN 8932..894B : le mot sera utilise par la resistance C_8D20.
++            # Sa comparaison reste MANQUANT ; ne pas supposer qu'il est correct.
++            ask("mot -> ")
+ 
+         dmg = attack_power(actor, action, present, required_item=required_item, rng=rng)
+         dmg = max(0, dmg - monster_resistance(monster, None))
+@@ -513,6 +519,8 @@ def run_combat(
+     monster = {m.id: m for m in get_monsters()}.get(cell.encounter)
+     if monster is None:
+         return "Le monstre a disparu."
++    if len(save.helper_items) != 4 or set(save.helper_items) != {3, 6, 9, 12}:
++        return "MANQUANT : aides de combat absentes ou invalides dans cette sauvegarde."
+     if on_monster is not None:
+         on_monster(monster)
+     monster_hp = spawn_monster_hp(monster, rng)
+@@ -530,7 +538,10 @@ def run_combat(
+             if not present:
+                 return "Le groupe est hors combat..."
+ 
+-        monster_hp, fled = _party_turn(present, monster, monster_hp, rng, ask=ask, log=log)
++        monster_hp, fled = _party_turn(
++            present, monster, monster_hp, rng, ask=ask, log=log,
++            helper_items=save.helper_items,
++        )
+         if fled:
+             return "Vous fuyez le combat."
+         if monster_hp <= 0:
+@@ -743,6 +754,7 @@ def main() -> None:
+     save.pos_h_mountains, save.pos_v_mountains = generate_mountains(rng)
+     save.loc_towns = generate_towns(rng)
+     save.secret_words = generate_secret_words(rng)
++    save.helper_items = generate_helper_items(rng)
+     save.worlds = generate_dungeon(num_floors=DUNGEON_FLOORS, difficulty=save.difficulty, rng=rng)
+     save.worlds[9] = generate_alfol_base(save.difficulty, rng)
+     save.worlds[10] = generate_meduz(rng)
+diff --git a/src/tera/models.py b/src/tera/models.py
+index f524a8d..d6c6f47 100644
+--- a/src/tera/models.py
++++ b/src/tera/models.py
+@@ -12,7 +12,7 @@ STATS = [
+ 
+ # L'association verbe de combat -> action_type/stat vit maintenant dans
+ # combat.py (ACTION_TYPES, STAT_BY_INDEX), confirmee par le desassemblage
+-# de C_842A (docs/TERA_notes_moteur.md section 17).
++# de C_8790 (docs/spec_combat_actions.md).
+ 
+ 
+ @dataclass
+@@ -73,6 +73,7 @@ class SaveGame:
+     tasks_done: list[bool] = field(default_factory=lambda: [False, False, False, False])
+     tasks_counter: int = 0
+     secret_words: list[str] = field(default_factory=list)  # 4 mots secrets
++    helper_items: list[int] = field(default_factory=list)  # Sav.f_Helper[1..4], IDs
+     hint_strings: list[str] = field(default_factory=list)
+     keys: list[int] = field(default_factory=lambda: [0] * 10)
+     has_map: list[bool] = field(default_factory=lambda: [False] * 11)
+diff --git a/src/tera/render/app.py b/src/tera/render/app.py
+index 2b44350..5a12cde 100644
+--- a/src/tera/render/app.py
++++ b/src/tera/render/app.py
+@@ -29,6 +29,7 @@ from ..amarande import (
+     AMARANDE_PYRAMIDE, AMARANDE_ALFOL,
+ )
+ from ..models import SaveGame
++from ..combat import generate_helper_items
+ from ..game import (
+     DUNGEON_FLOORS, AMARANDE_CITE_ENTRANCE, ALFOL_BASE_ENTRANCE,
+     handle_amarande_command, handle_alfol_surface_command, handle_shop_command,
+@@ -107,12 +108,14 @@ class GameView:
+ 
+ def build_game(screen: pygame.Surface, font: pygame.font.Font, clock: pygame.time.Clock, rng: random.Random) -> GameView:
+     """Ecran de creation de personnage (mode texte fidele, `chargen.py`)
+-    puis generation du monde -- exactement l'ordre de l'original."""
++    puis generation du monde. Ordre global encore A VERIFIER ; l'ordre
++    local mots secrets/aides suit INNER_BBA5 (voir spec_combat_actions)."""
+     party = run_chargen(screen, font, clock, rng)
+     save = SaveGame(characters=party, difficulty=5)
+     save.pos_h_mountains, save.pos_v_mountains = generate_mountains(rng)
+     save.loc_towns = generate_towns(rng)
+     save.secret_words = generate_secret_words(rng)
++    save.helper_items = generate_helper_items(rng)
+     save.worlds = generate_dungeon(num_floors=DUNGEON_FLOORS, difficulty=save.difficulty, rng=rng)
+     save.worlds[9] = generate_alfol_base(save.difficulty, rng)
+     save.worlds[10] = generate_meduz(rng)
+diff --git a/src/tera/save.py b/src/tera/save.py
+index 1ec369c..7fdd502 100644
+--- a/src/tera/save.py
++++ b/src/tera/save.py
+@@ -30,6 +30,7 @@ def save_to_file(save: SaveGame, path: str | Path) -> None:
+         "tasks_done": save.tasks_done,
+         "tasks_counter": save.tasks_counter,
+         "secret_words": save.secret_words,
++        "helper_items": save.helper_items,
+         "hint_strings": save.hint_strings,
+         "keys": save.keys,
+         "has_map": save.has_map,
+@@ -64,6 +65,7 @@ def load_from_file(path: str | Path) -> SaveGame:
+         tasks_done=data["tasks_done"],
+         tasks_counter=data["tasks_counter"],
+         secret_words=data["secret_words"],
++        helper_items=data.get("helper_items", []),
+         hint_strings=data["hint_strings"],
+         keys=data["keys"],
+         has_map=data["has_map"],
