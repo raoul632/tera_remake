@@ -107,6 +107,25 @@ Les pilotes dummy et horloges virtuelles ne confirment ni réactivité du tir
 humain, ni timbre PC speaker, ni cadence mesurée sur PC/XT physique.
 Ce sont des limites de validation, pas des bugs chiffrés inventés.
 
+## AUD-007 — P2, défaut du port corrigé : résultat F5/F9 invisible
+
+Signalement utilisateur : F5 sans indication visible. `save_game` et
+`load_game` remplissaient `App.message`, mais les branches du renderer
+historique retournaient avant le dessin des messages de diagnostic. Un succès,
+un refus hors exploration et une erreur de fichier paraissaient identiques.
+Cela ne prouvait pas que la partie de l'utilisateur avait été enregistrée.
+
+À partir de 0.1.1, le frontend affiche une notification de 3500 ms au moment
+de présenter l'image : sauvegarde/chargement réussis, refus hors exploration,
+erreur d'E/S ou attente d'animation. Cette indication concerne les raccourcis
+modernes F5/F9 ; elle ne modifie aucune règle originale ni l'état sauvegardé.
+
+Test `sdl3_save_feedback` : F5 via le vrai handler, ouverture et décodage du
+fichier produit, comparaison des états, notification réellement présente dans
+les pixels, disparition à l'échéance, F9 et refus/erreurs sans mutation de la
+session. Capture locale `save-feedback.bmp`. Test réussi aussi en Release.
+La sauvegarde de la partie en cours de l'utilisateur n'a pas été touchée.
+
 ## Divergences historiques retrouvées dans les documents
 
 Déjà corrigées avant cet audit, et régressions globales repassées :

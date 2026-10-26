@@ -92,6 +92,9 @@ La prochaine commande masquera cette fiche ; une flèche fera aussi un déplacem
 
 Au paysage, hors combat et hors menu, appuie sur **F5**.
 Cela crée ton point de reprise. **F5 remplace la sauvegarde précédente.**
+À partir de la version 0.1.1, « Partie sauvegardée » apparaît quelques secondes
+en bas de l’écran après une réussite. Si l’action est indisponible ou échoue,
+un message l’indique. La version 0.1.0 n’affichait pas cette confirmation.
 
 ### C. Marcher un peu
 

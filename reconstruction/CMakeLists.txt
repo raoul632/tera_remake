@@ -134,6 +134,15 @@ if(TERA_BUILD_SDL3)
         SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software
         "$<TARGET_FILE:test_shop_presentation_sdl3>" "${TERA_TEST_RESOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
     set_tests_properties(sdl3_shop_presentation PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 20)
+    add_executable(test_save_feedback_sdl3 tests/test_save_feedback_sdl3.c ${tera_frontend_sources})
+    target_link_libraries(test_save_feedback_sdl3 PRIVATE tera_engine tera_resources SDL3::SDL3)
+    if(NOT MSVC)
+        target_compile_options(test_save_feedback_sdl3 PRIVATE -Wall -Wextra -Werror -pedantic)
+    endif()
+    add_test(NAME sdl3_save_feedback COMMAND ${CMAKE_COMMAND} -E env
+        SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software
+        "$<TARGET_FILE:test_save_feedback_sdl3>" "${TERA_TEST_RESOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+    set_tests_properties(sdl3_save_feedback PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 20)
     add_executable(test_campaign_sdl3 tests/test_campaign_sdl3.c ${tera_frontend_sources})
     target_link_libraries(test_campaign_sdl3 PRIVATE tera_engine tera_resources SDL3::SDL3)
     if(NOT MSVC)

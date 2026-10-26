@@ -35,9 +35,30 @@ typedef struct {
     char message[128],event[128];
     Uint64 shot_started;
     Uint64 shop_preview_until;
+    Uint64 notice_until;
+    char notice[128];
     int running,shot_active,title;
     unsigned keys,events;
 } App;
+
+/* F5/F9 appartiennent au port : afficher leur resultat meme si le renderer
+ * historique n'affiche pas les messages de diagnostic de l'application. */
+static void show_notice(App *a,const char *text)
+{
+    snprintf(a->notice,sizeof a->notice,"%s",text);
+    a->notice_until=SDL_GetTicks()+3500;
+}
+static int present(App *a)
+{
+    if(a->notice_until && SDL_GetTicks()<a->notice_until) {
+        SDL_FRect band={0,184,320,16};
+        if(!tera_video_mode(a->renderer,0) ||
+           !SDL_SetRenderDrawColor(a->renderer,0,0,0,255) || !SDL_RenderFillRect(a->renderer,&band) ||
+           !SDL_SetRenderDrawColor(a->renderer,255,255,255,255) ||
+           !tera_text_draw(a->renderer,0,184,a->notice,40,2)) return 0;
+    }
+    return SDL_RenderPresent(a->renderer);
+}
 
 /* Le callback SDL ne rappelle jamais le core. Les purges semantiques sont
  * demandees par celui-ci ; elles n'effacent pas les evenements de fermeture. */
@@ -63,7 +84,7 @@ static int input_probe(void *context,TeraInputBoundary boundary,unsigned frame)
             SDL_PumpEvents();
             if(SDL_PeepEvents(&closing,1,SDL_GETEVENT,SDL_EVENT_QUIT,SDL_EVENT_QUIT)>0) a->running=0;
             if(!tera_battle_screen(a->renderer,&a->animation_view,a->resources,&a->textures,NULL,0,&picture) ||
-               !SDL_RenderPresent(a->renderer)) {a->running=0;break;}
+               !present(a)) {a->running=0;break;}
             SDL_Delay(8);
         }
         tera_media_reset(&a->media);
@@ -222,16 +243,31 @@ static void handle_event(App *a,const SDL_Event *e)
 {
     int key;
     if(e->type==SDL_EVENT_QUIT) a->running=0;
-    else if(a->shop_preview_until && (e->type==SDL_EVENT_KEY_DOWN || e->type==SDL_EVENT_TEXT_INPUT)) return;
+    else if(a->shop_preview_until && (e->type==SDL_EVENT_KEY_DOWN || e->type==SDL_EVENT_TEXT_INPUT)) {
+        if(e->type==SDL_EVENT_KEY_DOWN && !e->key.repeat && (e->key.key==SDLK_F5 || e->key.key==SDLK_F9))
+            show_notice(a,"Attends la fin de l'animation");
+        return;
+    }
     else if(a->title && (e->type==SDL_EVENT_KEY_DOWN || e->type==SDL_EVENT_TEXT_INPUT)) {
         a->title=0;input_probe(a,TERA_INPUT_PURGE,0);
     }
     else if(e->type==SDL_EVENT_KEY_DOWN) {
         if(e->key.repeat) return;
-        if(tera_media_busy(&a->media,SDL_GetTicks()) && e->key.key!=SDLK_F11) return;
+        if(tera_media_busy(&a->media,SDL_GetTicks()) && e->key.key!=SDLK_F11) {
+            if(e->key.key==SDLK_F5 || e->key.key==SDLK_F9) show_notice(a,"Attends la fin de l'animation");
+            return;
+        }
         switch(e->key.key) {
-        case SDLK_F5:save_game(a);return;
-        case SDLK_F9:load_game(a);return;
+        case SDLK_F5:
+            if(save_game(a)) show_notice(a,"Partie sauvegardee");
+            else show_notice(a,a->game.phase!=TERA_GAME_READY ?
+                "Sauvegarde indisponible\nReviens a l'exploration" : "Echec de sauvegarde\nVerifie le dossier du jeu");
+            return;
+        case SDLK_F9:
+            if(load_game(a)) show_notice(a,"Partie chargee");
+            else show_notice(a,a->game.phase!=TERA_GAME_READY ?
+                "Chargement indisponible\nReviens a l'exploration" : "Chargement impossible\nVerifie la sauvegarde tera.sav");
+            return;
         case SDLK_F11:
             if(!SDL_SetWindowFullscreen(a->window,!(SDL_GetWindowFlags(a->window)&SDL_WINDOW_FULLSCREEN)))
                 snprintf(a->message,sizeof a->message,"Fullscreen failed");
@@ -251,18 +287,18 @@ static int draw(App *a)
 {
     const TeraPresentationEvent *cue=tera_media_current(&a->media,SDL_GetTicks());
     if(a->title) return SDL_SetRenderDrawColor(a->renderer,0,0,0,255) && SDL_RenderClear(a->renderer) &&
-        tera_background_draw(a->renderer,&a->textures,1) && SDL_RenderPresent(a->renderer);
-    if(tera_media_tunnel(&a->media,SDL_GetTicks())) return tera_media_tunnel_draw(a->renderer,&a->media,SDL_GetTicks()) && SDL_RenderPresent(a->renderer);
+        tera_background_draw(a->renderer,&a->textures,1) && present(a);
+    if(tera_media_tunnel(&a->media,SDL_GetTicks())) return tera_media_tunnel_draw(a->renderer,&a->media,SDL_GetTicks()) && present(a);
     if(tera_media_ending(&a->media,SDL_GetTicks()) || (!tera_media_busy(&a->media,SDL_GetTicks()) &&
        (a->game.phase==TERA_GAME_ENDING || (a->game.phase==TERA_GAME_LIFE && a->game.active.life.phase==TERA_LIFE_ACK))))
-        return tera_sdl_render(a->renderer,&a->game,a->resources,&a->textures,"","",NULL,0,NULL) && SDL_RenderPresent(a->renderer);
+        return tera_sdl_render(a->renderer,&a->game,a->resources,&a->textures,"","",NULL,0,NULL) && present(a);
     if(cue) {
         const TeraPresentationEvent *flash=tera_media_flash(&a->media,SDL_GetTicks());
         TeraGameView v;tera_game_view(&a->game,&v);
         v.exploration=&a->battle_background;v.characters=&a->battle_background.world.characters;
         v.scene=a->battle_scene;
         return tera_battle_screen(a->renderer,&v,a->resources,&a->textures,NULL,0,&cue->data.combat) &&
-            (!flash || tera_battle_flash(a->renderer,flash->data.flash.palette,flash->data.flash.border)) && SDL_RenderPresent(a->renderer);
+            (!flash || tera_battle_flash(a->renderer,flash->data.flash.palette,flash->data.flash.border)) && present(a);
     }
     if(tera_media_busy(&a->media,SDL_GetTicks()) && a->before_render) {
         const TeraPresentationEvent *flash=tera_media_flash(&a->media,SDL_GetTicks());
@@ -271,9 +307,9 @@ static int draw(App *a)
             (!ray || (SDL_SetRenderDrawColor(a->renderer,255,255,255,255) &&
              SDL_RenderLine(a->renderer,155,134,(float)ray->data.ray.x,(float)ray->data.ray.y) &&
              SDL_RenderLine(a->renderer,156,134,(float)ray->data.ray.x,(float)ray->data.ray.y))) &&
-            (!flash || tera_battle_flash(a->renderer,flash->data.flash.palette,flash->data.flash.border)) && SDL_RenderPresent(a->renderer);
+            (!flash || tera_battle_flash(a->renderer,flash->data.flash.palette,flash->data.flash.border)) && present(a);
     }
-    return tera_sdl_render(a->renderer,&a->game,a->resources,&a->textures,a->message,a->event,a->text_events,a->text_count,a->card_visible ? &a->held_card : NULL) && SDL_RenderPresent(a->renderer);
+    return tera_sdl_render(a->renderer,&a->game,a->resources,&a->textures,a->message,a->event,a->text_events,a->text_count,a->card_visible ? &a->held_card : NULL) && present(a);
 }
 /* Preuve native : un evenement SDL a la fois traverse le vrai mapping,
  * creation puis navigation. Comparaison octet pour octet des sauvegardes
