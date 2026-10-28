@@ -1,10 +1,16 @@
 # Manifeste des ressources locales
 
-16 octobre 2026. Métadonnées uniquement ; aucun octet d'asset original n'est
-redistribué. Provenance : data/compiled program/, lecture seule. Voir
-[formats, conversions et validation](TERA_ASSETS.md). Les chargeurs valident
-les formats plutôt que d'imposer ces empreintes à toutes les copies du jeu.
-TERA.COM/TERA.000 ne font pas partie du paquet runtime.
+28 octobre 2026. Provenance : DATA, `data/compiled program/`, lecture seule.
+Les quinze empreintes ci-dessous sont inchangées. Le contenu est désormais
+converti en PNG/JSON éditables, puis intégré localement à l'exécutable C.
+Extraction et intégration ne modifient ni son origine TERA / Loriciels 1986 ni
+ses droits. Les dérivés et tableaux C restent exclus de Git ; aucune publication.
+Le manifeste machine `assets/original/editable/manifest.json` conserve ces
+empreintes, tailles, palette d'inspection et règle du masque. Il accompagne
+l'archive locale comme notice de provenance, sans ressources séparées.
+
+Voir [conversions et commandes](TERA_EMBEDDED_RESOURCES.md).
+TERA.COM et TERA.000 ne participent ni à la conversion ni au runtime.
 
 | Source | Octets | SHA-256 |
 |---|---:|---|

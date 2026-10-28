@@ -190,7 +190,7 @@ int main(int argc,char **argv)
     frontend.presentation.emit=observed;frontend.presentation.context=&frontend;
     frontend.before_render=SDL_malloc(sizeof *frontend.before_render);
     require(frontend.before_render!=NULL,"SDL before render allocation");
-    frontend.resources=tera_resources_load(argv[1],error,sizeof error);
+    frontend.resources=tera_resources_load(NULL,error,sizeof error);
     require(frontend.resources!=NULL,error);
     frontend.window=SDL_CreateWindow("TERA campaign validation",640,480,SDL_WINDOW_HIDDEN);
     require(frontend.window!=NULL,"SDL window");

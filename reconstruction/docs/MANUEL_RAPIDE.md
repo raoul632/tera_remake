@@ -6,12 +6,9 @@ et essayer quelques actions. Tu n’as pas besoin de terminer le jeu pour le tes
 
 ## 1. Lancer le jeu
 
-Ouvre ce dossier dans l’Explorateur Windows :
-
-`E:\dev\PYTHON\PROJETS\tera_remake\reconstruction\build\sdl3\runtime-only`
-
-Double-clique sur **tera_sdl3.exe**. Laisse le dossier **data** et le fichier
-**SDL3.dll** à côté de lui.
+Extrais entièrement l'archive Windows x64 dans un dossier accessible en écriture.
+Double-clique sur **tera_sdl3.exe**. Garde **SDL3.dll** à côté de lui.
+Les ressources originales converties sont intégrées : aucun dossier data à ajouter.
 
 - Clique dans la fenêtre du jeu pour lui donner le clavier.
 - Appuie sur **Entrée** pour passer l’image de présentation.
@@ -214,11 +211,10 @@ Pour quitter tranquillement : sauvegarde avec **F5**, puis ferme la fenêtre.
 Sur Amarande, tu peux aussi utiliser **H → Échap → O**.
 Quitter par ce menu ne remplace pas la sauvegarde manuelle F5.
 
-**Pour reprendre après avoir fermé le jeu :** relance le même exécutable.
-Cette version démarre directement une nouvelle création de personnage.
-Termine cette création rapidement, puis, dès que le paysage est visible,
-appuie sur **F9 pour retrouver ta partie sauvegardée**.
-Ne fais pas F5 avant F9 : tu remplacerais ton ancienne sauvegarde par la nouvelle partie.
+**Pour reprendre après avoir fermé le jeu :** depuis le dossier extrait,
+exécute `./tera_sdl3.exe --load tera.sav` dans PowerShell.
+La sauvegarde par défaut est `tera.sav` dans le répertoire de travail ;
+`--save CHEMIN` choisit un emplacement explicite. F9 recharge pendant l'exploration.
 
 ## 9. Quand tu te sens à l’aise
 

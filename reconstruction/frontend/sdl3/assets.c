@@ -1,31 +1,16 @@
 #include "assets.h"
+#include "embedded.h"
 #include <stdio.h>
 #include <string.h>
-
-static int read_exact(const char *dir,const char *name,unsigned char *out,size_t size,
-    char *error,size_t capacity)
-{
-    char path[4096];FILE *file;int n,ok,closed;
-    n=snprintf(path,sizeof path,"%s/%s",dir,name);
-    if(n<0 || (size_t)n>=sizeof path) {
-        snprintf(error,capacity,"Resource path too long");return 0;
-    }
-    file=fopen(path,"rb");
-    if(!file) {snprintf(error,capacity,"Cannot open %s",path);return 0;}
-    ok=fread(out,1,size,file)==size && fgetc(file)==EOF && !ferror(file);
-    closed=fclose(file)==0;
-    if(!ok || !closed) {snprintf(error,capacity,"Invalid resource: %s (expected %lu bytes)",name,(unsigned long)size);return 0;}
-    return 1;
-}
 
 int tera_assets_world(TeraExplorationState *world,const char *dir,uint32_t seed,
     unsigned difficulty,char *error,size_t capacity)
 {
     unsigned char names[270],monsters[264];unsigned group,id,column;
     TeraExplorationState next;TeraNameVariants variants;TeraWorldReport report;
-    if(!world || !dir || !error || !capacity) return 0;
-    if(!read_exact(dir,"NOMPERS",names,sizeof names,error,capacity) ||
-       !read_exact(dir,"VALMON",monsters,sizeof monsters,error,capacity)) return 0;
+    if(!world || !error || !capacity) return 0;
+    if(!tera_resource_read(dir,"NOMPERS",names,sizeof names,error,capacity) ||
+       !tera_resource_read(dir,"VALMON",monsters,sizeof monsters,error,capacity)) return 0;
     memset(&next,0,sizeof next);memset(&variants,0,sizeof variants);
     for(group=0;group<3;++group) for(id=1;id<10;++id) {
         unsigned offset=(group*9+id-1)*10,length=names[offset];

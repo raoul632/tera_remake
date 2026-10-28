@@ -20,7 +20,27 @@ endif()
 target_compile_features(tera_engine PUBLIC c_std_99)
 
 # Formats de ressources de presentation en C portable ; aucune dependance SDL.
-add_library(tera_resources STATIC frontend/sdl3/resources.c frontend/sdl3/encoding.c)
+# Generated storage is delivered locally with the editable assets. No Python
+# or original DOS data is consulted by an ordinary C build.
+set(TERA_EMBEDDED_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/original/generated/embedded.c"
+    CACHE FILEPATH "Generated Original resource C source")
+option(TERA_REGENERATE_ASSETS "Regenerate embedded C from editable PNG/JSON using Python/Pillow" OFF)
+if(NOT EXISTS "${TERA_EMBEDDED_SOURCE}" AND NOT TERA_REGENERATE_ASSETS)
+    message(FATAL_ERROR "Missing embedded.c: see docs/TERA_EMBEDDED_RESOURCES.md for local generation")
+endif()
+if(TERA_REGENERATE_ASSETS)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    file(GLOB_RECURSE tera_editable_assets CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/original/editable/*.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/original/editable/*.json")
+    add_custom_command(OUTPUT "${TERA_EMBEDDED_SOURCE}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/original_resources.py"
+            generate --editable "${CMAKE_CURRENT_SOURCE_DIR}/assets/original/editable"
+            --output "${TERA_EMBEDDED_SOURCE}"
+        DEPENDS tools/original_resources.py ${tera_editable_assets}
+        VERBATIM)
+endif()
+add_library(tera_resources STATIC frontend/sdl3/resources.c frontend/sdl3/encoding.c "${TERA_EMBEDDED_SOURCE}")
 target_include_directories(tera_resources PUBLIC frontend/sdl3 engine/include)
 target_compile_features(tera_resources PUBLIC c_std_99)
 if(MSVC)
@@ -113,6 +133,11 @@ if(MSVC)
 else()
     target_compile_options(test_resources_c PRIVATE -Wall -Wextra -Werror -pedantic)
 endif()
+add_executable(test_embedded_c tests/test_embedded_c.c frontend/sdl3/assets.c)
+target_link_libraries(test_embedded_c PRIVATE tera_resources tera_engine)
+add_test(NAME embedded_without_originals COMMAND test_embedded_c)
+add_test(NAME embedded_external_equivalence COMMAND test_embedded_c "${TERA_TEST_RESOURCE_DIR}")
+set_tests_properties(embedded_external_equivalence PROPERTIES SKIP_RETURN_CODE 77)
 add_test(NAME resource_decoder_contracts COMMAND test_resources_c)
 add_test(NAME original_resource_formats COMMAND test_resources_c "${TERA_TEST_RESOURCE_DIR}")
 set_tests_properties(original_resource_formats PROPERTIES SKIP_RETURN_CODE 77)
@@ -401,3 +426,26 @@ if(NOT MSVC)
 endif()
 
 
+
+# Contract tests use assert for checks and setup. Keep them active in Release.
+get_property(tera_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(tera_target IN LISTS tera_targets)
+    if(tera_target MATCHES "^test_")
+        if(MSVC)
+            target_compile_options(${tera_target} PRIVATE /UNDEBUG)
+        else()
+            target_compile_options(${tera_target} PRIVATE -UNDEBUG)
+        endif()
+    endif()
+endforeach()
+
+# MinGW x64 UCRT SEH unwind crashes at the campaign longjmp checkpoint.
+# These C-only pilots own no SEH cleanup: use the documented non-SEH setjmp
+# switch from the installed MinGW setjmp.h. Production uses no longjmp.
+if(MINGW AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    foreach(tera_target test_campaign_c test_campaign_sdl3 test_teramain_binary_c)
+        if(TARGET ${tera_target})
+            target_compile_definitions(${tera_target} PRIVATE __USE_MINGW_SETJMP_NON_SEH)
+        endif()
+    endforeach()
+endif()

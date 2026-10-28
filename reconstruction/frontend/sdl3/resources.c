@@ -1,4 +1,5 @@
 #include "resources.h"
+#include "embedded.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,9 +76,14 @@ int tera_resource_atlas(const uint8_t *b,size_t size,TeraSpriteAtlas *out)
     }
     return 1;
 }
-static int read_exact(const char *dir,const char *name,uint8_t *bytes,size_t size,char *error,size_t capacity)
+int tera_resource_read(const char *dir,const char *name,uint8_t *bytes,size_t size,char *error,size_t capacity)
 {
     char path[4096];FILE *file;int n,ok,closed;
+    if(!dir) {
+        size_t actual;const unsigned char *embedded=tera_embedded_resource(name,&actual);
+        if(!embedded || actual!=size) {snprintf(error,capacity,"Invalid embedded resource: %s",name);return 0;}
+        memcpy(bytes,embedded,size);return 1;
+    }
     n=snprintf(path,sizeof path,"%s/%s",dir,name);
     if(n<0 || (size_t)n>=sizeof path) {snprintf(error,capacity,"Resource path too long: %s",name);return 0;}
     file=fopen(path,"rb");
@@ -89,19 +95,19 @@ static int read_exact(const char *dir,const char *name,uint8_t *bytes,size_t siz
 TeraResources *tera_resources_load(const char *dir,char *error,size_t capacity)
 {
     TeraResources *r;uint8_t bytes[TERA_ATLAS_BYTES];unsigned i;
-    if(!dir || !error || !capacity) return NULL;
+    if(!error || !capacity) return NULL;
     r=calloc(1,sizeof *r);
     if(!r) {snprintf(error,capacity,"Cannot allocate original resources");return NULL;}
     for(i=0;i<TERA_RES_TEXT_COUNT;++i) {
-        if(!read_exact(dir,tables[i].name,bytes,tables[i].count*tables[i].stride,error,capacity)) goto fail;
+        if(!tera_resource_read(dir,tables[i].name,bytes,tables[i].count*tables[i].stride,error,capacity)) goto fail;
         if(!tera_resource_strings(bytes,tables[i].count*tables[i].stride,tables[i].count,tables[i].stride,r->text[i])) {
             snprintf(error,capacity,"Invalid Pascal strings: %s",tables[i].name);goto fail;
         }
     }
-    if(!read_exact(dir,"CRAPIM.IMA",bytes,TERA_ATLAS_BYTES,error,capacity)) goto fail;
+    if(!tera_resource_read(dir,"CRAPIM.IMA",bytes,TERA_ATLAS_BYTES,error,capacity)) goto fail;
     if(!tera_resource_atlas(bytes,TERA_ATLAS_BYTES,&r->atlas)) {snprintf(error,capacity,"Invalid sprite atlas: CRAPIM.IMA");goto fail;}
     for(i=0;i<TERA_BACKGROUND_COUNT;++i) {
-        if(!read_exact(dir,backgrounds[i],bytes,16384,error,capacity)) goto fail;
+        if(!tera_resource_read(dir,backgrounds[i],bytes,16384,error,capacity)) goto fail;
         if(!tera_resource_cga(bytes,16384,r->backgrounds[i])) goto fail;
     }
     error[0]=0;return r;

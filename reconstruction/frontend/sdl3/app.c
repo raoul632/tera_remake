@@ -411,7 +411,7 @@ static int startup_seed(int supplied,unsigned long requested,int run_smoke,uint3
 int tera_sdl_main(int argc,char **argv)
 {
     App a;TeraExplorationState world;SDL_Event event;const char *data=NULL,*capture=NULL,*load=NULL;
-    char error[512],default_data[4096];unsigned long seed=1986,difficulty=0;
+    char error[512];unsigned long seed=1986,difficulty=0;
     uint32_t initial_seed;int i,result=1,run_smoke=0,seed_supplied=0;
     SDL_zero(a);a.running=1;a.save_path="tera.sav";
     for(i=1;i<argc;++i) {
@@ -430,13 +430,6 @@ int tera_sdl_main(int argc,char **argv)
     a.smoke_mode=run_smoke;
     if(!SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS)) goto sdl_error;
     a.before_render=SDL_malloc(sizeof *a.before_render);if(!a.before_render) goto sdl_error;
-    if(!data) {
-        const char *base=SDL_GetBasePath();int length;
-        if(!base) goto sdl_error;
-        length=snprintf(default_data,sizeof default_data,"%sdata",base);
-        if(length<0 || (size_t)length>=sizeof default_data) {fprintf(stderr,"Data path too long\n");goto done;}
-        data=default_data;
-    }
     a.input.probe=input_probe;a.input.context=&a;
     a.presentation.emit=observed;a.presentation.context=&a;
     a.resources=tera_resources_load(data,error,sizeof error);

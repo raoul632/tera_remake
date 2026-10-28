@@ -34,6 +34,7 @@ int tera_resource_atlas(const uint8_t *bytes,size_t size,TeraSpriteAtlas *out);
 int tera_resource_cga(const uint8_t *bytes,size_t size,uint8_t out[320*200]);
 /* Charger un paquet complet en lecture seule ; alloue une valeur uniquement
  * au succes. Liberer par free(). error recoit l'element fautif. */
+/* NULL directory: compiled resources; explicit path: external development data. */
 TeraResources *tera_resources_load(const char *directory,char *error,size_t capacity);
 const char *tera_resource_text(const TeraResources *resources,TeraTextTable table,unsigned id);
 const char *tera_resource_background_name(unsigned index);

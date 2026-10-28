@@ -1,5 +1,12 @@
 # Reconstruction fidèle de TERA — nouveaux travaux Codex
 
+Mise à jour Original, 28 octobre 2026 : ressources PNG/JSON éditables et
+intégration à la compilation. [Chaîne et installation](docs/TERA_EMBEDDED_RESOURCES.md),
+[validation de la livraison](docs/TERA_EMBEDDED_VALIDATION.md).
+Guide pratique : [modifier les données](docs/MODIFIER_LES_DONNEES.md). Le jeu utilise
+les ressources compilées par défaut ; aucune copie de fichiers DOS à ajouter.
+Les indications antérieures de chargement externe ci-dessous sont historiques.
+
 Tout le travail introduit par Codex dans cette session est regroupé dans
 `reconstruction/`. Le dépôt historique (`src/`, `docs/`, `tools/`, `tests/`,
 README et CLAUDE) reste inchangé. Les originaux dans `data/` et `manuel/`
